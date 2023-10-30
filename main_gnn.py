@@ -153,8 +153,61 @@ class GeneticGraphDataset(Dataset):
 
     def __len__(self):
         return len(self.sequences)
-    import dgl
-import torch
+    
+    def codons_to_graph(self, codon_numbers, codon_polarity, amino_acids):
+        num_codons = len(codon_numbers)
+        src_nodes = []
+        dst_nodes = []
+        
+        for i in range(num_codons):
+            if i == 0:
+                src_nodes.extend([i, i])
+                dst_nodes.extend([i, i + 1])
+            elif i == num_codons - 1:
+                src_nodes.extend([i, i])
+                dst_nodes.extend([i - 1, i])
+            else:
+                src_nodes.extend([i] * 3)
+                dst_nodes.extend([i - 1, i, i + 1])
+
+        g = dgl.graph((src_nodes, dst_nodes), num_nodes=num_codons)
+
+        # Initialize a tensor of shape (num_codons, 64) with zeros for codon features
+        codon_features = torch.zeros(num_codons, 64, dtype=torch.float32)
+        for i, codon_num in enumerate(codon_numbers):
+            codon_features[i, codon_num] = 1
+
+        #weights = torch.tensor([0.1, 0.2, 0.3, 0.4])
+
+        
+
+        # Assign the codon features to the graph
+        g.ndata['codon_feature'] = codon_features
+        #g.edata['edge_weight'] = weights
+        # Create a tensor for polarity feature
+        polarity_features = torch.zeros(num_codons, len(CODON_POLARITY), dtype=torch.float32)
+        for i, codon_polarity_label in enumerate(codon_polarity):
+            polarity_features[i, list(CODON_POLARITY.values()).index(codon_polarity_label)] = 1
+
+        # Assign the polarity features to the graph
+        g.ndata['polarity_feature'] = polarity_features
+
+        amino_acid_features = torch.zeros(num_codons, len(AMINO_ACIDS), dtype=torch.float32)
+        for i, amino_acid in enumerate(amino_acids):
+            amino_acid_features[i, list(AMINO_ACIDS).index(amino_acid)] = 1
+        g.ndata['amino_acid_feature'] = amino_acid_features
+
+        return g
+
+
+    def __getitem__(self, idx):
+            sequence = self.sequences[idx]
+            #print(sequence)
+            graph = self.codons_to_graph(sequence)
+            label = self.labels[idx]
+            #print(len(sequence))
+            return graph, label
+    
 
 CODON_TO_AA = {
     'ATA': 'I', 'ATC': 'I', 'ATT': 'I', 'ATG': 'M',
@@ -201,60 +254,7 @@ def convert_codons_to_polarity(codon_seq):
 def convert_codons_to_aa(codon_seq):
     return [CODON_TO_AA[codon] for codon in codon_seq]
 
-def codons_to_graph(codon_numbers, codon_polarity, amino_acids):
-    num_codons = len(codon_numbers)
-    src_nodes = []
-    dst_nodes = []
-    
-    for i in range(num_codons):
-        if i == 0:
-            src_nodes.extend([i, i])
-            dst_nodes.extend([i, i + 1])
-        elif i == num_codons - 1:
-            src_nodes.extend([i, i])
-            dst_nodes.extend([i - 1, i])
-        else:
-            src_nodes.extend([i] * 3)
-            dst_nodes.extend([i - 1, i, i + 1])
 
-    g = dgl.graph((src_nodes, dst_nodes), num_nodes=num_codons)
-
-    # Initialize a tensor of shape (num_codons, 64) with zeros for codon features
-    codon_features = torch.zeros(num_codons, 64, dtype=torch.float32)
-    for i, codon_num in enumerate(codon_numbers):
-        codon_features[i, codon_num] = 1
-
-    #weights = torch.tensor([0.1, 0.2, 0.3, 0.4])
-
-    
-
-    # Assign the codon features to the graph
-    g.ndata['codon_feature'] = codon_features
-    #g.edata['edge_weight'] = weights
-    # Create a tensor for polarity feature
-    polarity_features = torch.zeros(num_codons, len(CODON_POLARITY), dtype=torch.float32)
-    for i, codon_polarity_label in enumerate(codon_polarity):
-        polarity_features[i, list(CODON_POLARITY.values()).index(codon_polarity_label)] = 1
-
-    # Assign the polarity features to the graph
-    g.ndata['polarity_feature'] = polarity_features
-
-    amino_acid_features = torch.zeros(num_codons, len(AMINO_ACIDS), dtype=torch.float32)
-    for i, amino_acid in enumerate(amino_acids):
-        amino_acid_features[i, list(AMINO_ACIDS).index(amino_acid)] = 1
-    g.ndata['amino_acid_feature'] = amino_acid_features
-
-    return g
-
-
-
-    def __getitem__(self, idx):
-            sequence = self.sequences[idx]
-            #print(sequence)
-            graph = self.codons_to_graph(sequence)
-            label = self.labels[idx]
-            #print(len(sequence))
-            return graph, label
 
 BASES = ["A", "T", "C", "G", "a", "t", "c", "g"]
 
