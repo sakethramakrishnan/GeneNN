@@ -148,13 +148,18 @@ def train(train_loader, val_loader, device, model):
 
 class GeneticGraphDataset(Dataset):
     def __init__(self, sequences, labels):
-        self.sequences = sequences
+        # where sequence is a list of codons
         self.labels = labels
+        self.sequences = sequences
 
     def __len__(self):
-        return len(self.sequences)
+        return len(self.codon_numbers)
     
-    def codons_to_graph(self, codon_numbers, codon_polarity, amino_acids):
+    def codons_to_graph(self, sequence):
+        codon_numbers = convert_codons_to_nums(sequence)
+        codon_polarity = convert_codons_to_polarity(sequence)
+        amino_acids = convert_codons_to_aa(sequence)
+        
         num_codons = len(codon_numbers)
         src_nodes = []
         dst_nodes = []
@@ -201,7 +206,7 @@ class GeneticGraphDataset(Dataset):
 
 
     def __getitem__(self, idx):
-            sequence = self.sequences[idx]
+            sequence = self.sequence[idx]
             #print(sequence)
             graph = self.codons_to_graph(sequence)
             label = self.labels[idx]
@@ -435,9 +440,11 @@ if __name__ == "__main__":
 
     labels = parse_sequence_labels(sequences_raw)
     raw_sequences, labels = preprocess_data(sequences_raw, labels)
-    sequences = [convert_codons_to_nums(seq_to_codon_list(truncate_codon_sequence(seq[0].upper()))) for seq in raw_sequences]
+    sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
     labels_dict = {'CDS': 0, 'ncRNA': 1, 'tRNA': 2, 'mRNA': 3, 'rRNA': 4}
     label_nums = [labels_dict[label_str] for label_str in labels]
+
+      
 
     dataset = GeneticGraphDataset(sequences, label_nums)
     train_idx, val_idx = split_fold10(labels)
