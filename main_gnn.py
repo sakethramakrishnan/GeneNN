@@ -91,8 +91,8 @@ class GIN(nn.Module):
         return score_over_layer
 
 
-def split_fold10(labels, fold_idx=0):
-    skf = StratifiedKFold(n_splits=10, shuffle=True, random_state=0)
+def split_fold10(labels, fold_idx=0, n_splits = 3):
+    skf = StratifiedKFold(n_splits, shuffle=True, random_state=0)
     idx_list = []
     for idx in skf.split(np.zeros(len(labels)), labels):
         idx_list.append(idx)
@@ -147,15 +147,16 @@ def train(train_loader, val_loader, device, model):
 
 
 class GeneticGraphDataset(Dataset):
-    def __init__(self, sequences, labels):
+    def __init__(self, sequences, labels, num_feats):
         # where sequence is a list of codons
         self.labels = labels
         self.sequences = sequences
+        self.num_feats = num_feats
 
     def __len__(self):
         return len(self.codon_numbers)
     
-    def codons_to_graph(self, sequence):
+    def codons_to_graph(self, sequence, num_feats):
         codon_numbers = convert_codons_to_nums(sequence)
         codon_polarity = convert_codons_to_polarity(sequence)
         amino_acids = convert_codons_to_aa(sequence)
@@ -176,9 +177,15 @@ class GeneticGraphDataset(Dataset):
                 dst_nodes.extend([i - 1, i, i + 1])
 
         g = dgl.graph((src_nodes, dst_nodes), num_nodes=num_codons)
-
+        
+        node_features = torch.zeros(1, num_feats, dtype=torch.float32)
+        
+        #print(node_features.size())
+        
+        '''
         # Initialize a tensor of shape (num_codons, 64) with zeros for codon features
         codon_features = torch.zeros(num_codons, 64, dtype=torch.float32)
+        
         for i, codon_num in enumerate(codon_numbers):
             codon_features[i, codon_num] = 1
 
@@ -203,12 +210,12 @@ class GeneticGraphDataset(Dataset):
         g.ndata['amino_acid_feature'] = amino_acid_features
 
         return g
-
+        '''
 
     def __getitem__(self, idx):
-            sequence = self.sequence[idx]
+            sequence = self.sequences[idx]
             #print(sequence)
-            graph = self.codons_to_graph(sequence)
+            graph = self.codons_to_graph(sequence, self.num_feats)
             label = self.labels[idx]
             #print(len(sequence))
             return graph, label
@@ -433,33 +440,37 @@ if __name__ == "__main__":
     print(f"Training with DGL built-in GINConv module with a fixed epsilon = 0")
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = "cpu"
-    path = "/lus/eagle/projects/RL-fold/sakisubi/Data/NewDataJustModified"
-    sequences_raw = []
-    for p in Path(path).glob("*.fasta"):
-        sequences_raw.extend(read_fasta(p))
+    #path = "/lus/eagle/projects/RL-fold/sakisubi/Data/NewDataJustModified"
+    #sequences_raw = []
+    #for p in Path(path).glob("*.fasta"):
+     #   sequences_raw.extend(read_fasta(p))
 
-    labels = parse_sequence_labels(sequences_raw)
-    raw_sequences, labels = preprocess_data(sequences_raw, labels)
-    sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
-    labels_dict = {'CDS': 0, 'ncRNA': 1, 'tRNA': 2, 'mRNA': 3, 'rRNA': 4}
-    label_nums = [labels_dict[label_str] for label_str in labels]
+    #labels = parse_sequence_labels(sequences_raw)
+    labels = ["mRNA", "tRNA", "mRNA"]
+    #raw_sequences, labels = preprocess_data(sequences_raw, labels)
+    #sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
+    sequences = [["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"]]
+    #labels_dict = {'CDS': 0, 'ncRNA': 1, 'tRNA': 2, 'mRNA': 3, 'rRNA': 4}
+    #label_nums = [labels_dict[label_str] for label_str in labels]
+    print(len(sequences))
+    label_nums = [0, 3, 0, 0, 0, 2, 3, 1, 4, 0, 2]
 
       
 
-    dataset = GeneticGraphDataset(sequences, label_nums)
-    train_idx, val_idx = split_fold10(labels)
+    dataset = GeneticGraphDataset(sequences = sequences, labels =label_nums, num_feats=3)
+    train_idx, val_idx = split_fold10(label_nums)
 
     # create dataloader
     train_loader = GraphDataLoader(
         dataset,
         sampler=SubsetRandomSampler(train_idx),
-        batch_size=128,
+        batch_size=1,
         pin_memory=torch.cuda.is_available(),
     )
     val_loader = GraphDataLoader(
         dataset,
         sampler=SubsetRandomSampler(val_idx),
-        batch_size=128,
+        batch_size=1,
         pin_memory=torch.cuda.is_available(),
     )
 
