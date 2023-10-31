@@ -384,13 +384,15 @@ def filter_sequences_by_gc(dna_sequences):
     return valid_inds
 
 
-def preprocess_data(sequences: List[Sequence], labels: List[str], per_of_each_class=1.0):
+def preprocess_data(sequences: List[Sequence], labels: List[str], per_of_each_class=1.0, max_len=3000):
     # Note: This function modifies sequences and labels
     # Filter out any outlier labels
     valid_labels = set(['mRNA', 'tRNA', 'RNA', 'exon', 'misc_RNA', 'rRNA', 'CDS', 'ncRNA'])
     valid_inds_labels = [i for i, label in enumerate(labels) if label in valid_labels]
     valid_inds_sequences = filter_sequences_by_gc(sequences)
+    valid_inds_sequences = [x for x in valid_inds_sequences if len(sequences[x]) <= max_len]
     valid_inds = intersection(valid_inds_labels, valid_inds_sequences)
+    print(len(valid_inds))
     sequences = [sequences[ind] for ind in valid_inds]
     labels = [labels[ind] for ind in valid_inds]
 
@@ -442,11 +444,11 @@ if __name__ == "__main__":
     sequences_raw = []
     #for p in Path(path).glob("*.fasta"):
     sequences_raw.extend(read_fasta(path))
-
+    max_len = 3000
     labels = parse_sequence_labels(sequences_raw)
     raw_sequences, labels = preprocess_data(sequences_raw, labels)
     sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
-    max_len = max_len_seq(sequences)
+    
     print(f"max_len: {max_len}")
     
     
@@ -455,7 +457,7 @@ if __name__ == "__main__":
     label_nums = [labels_dict[label_str] for label_str in labels]
     #label_nums = [0, 3, 0, 0, 0, 2, 3, 1, 4, 0, 2]
 
-      
+
 
     dataset = GeneticGraphDataset(sequences = sequences, labels =label_nums, num_feats=3, max_len=max_len)
     train_idx, val_idx = split_fold10(label_nums)
