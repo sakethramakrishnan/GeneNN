@@ -148,18 +148,18 @@ def train(train_loader, val_loader, device, model):
 
 
 class GeneticGraphDataset(Dataset):
-    def __init__(self, sequences, labels, num_feats, max_len):
+    def __init__(self, sequences, labels, num_feats, max_len_codon):
         # where sequence is a list of codons
         self.labels = labels
         self.sequences = sequences
         self.num_feats = num_feats
-        self.max_len = max_len
+        self.max_len_codon = max_len_codon
 
     def __len__(self):
         return len(self.codon_numbers)
 
 
-    def codons_to_graph(self, sequence, num_feats, max_len):
+    def codons_to_graph(self, sequence, num_feats, max_len_codon):
         codon_numbers = convert_codons_to_nums(sequence)
         codon_polarity = convert_codons_to_polarity(sequence)
         amino_acids = convert_codons_to_aa(sequence)
@@ -168,7 +168,7 @@ class GeneticGraphDataset(Dataset):
         src_nodes = []
         dst_nodes = []
         
-        for i in range(num_codons):
+        for i in range(num_codons+1):
             if i == 0:
                 src_nodes.extend([i, i])
                 dst_nodes.extend([i, i + 1])
@@ -179,9 +179,9 @@ class GeneticGraphDataset(Dataset):
                 src_nodes.extend([i] * 3)
                 dst_nodes.extend([i - 1, i, i + 1])
         
-        g = dgl.graph((src_nodes, dst_nodes), num_nodes=max_len)
+        g = dgl.graph((src_nodes, dst_nodes), num_nodes=max_len_codon)
         
-        node_features = torch.zeros(max_len, num_feats, dtype=torch.float32)
+        node_features = torch.zeros(max_len_codon, num_feats, dtype=torch.float32)
         
         for i, (num, polar, aa) in enumerate(zip(codon_numbers, codon_polarity, amino_acids)):
            
@@ -200,7 +200,7 @@ class GeneticGraphDataset(Dataset):
     def __getitem__(self, idx):
             sequence = self.sequences[idx]
             #print(sequence)
-            graph = self.codons_to_graph(sequence, self.num_feats, self.max_len)
+            graph = self.codons_to_graph(sequence, self.num_feats, self.max_len_codon)
             label = self.labels[idx]
             #print(len(sequence))
            
@@ -351,9 +351,6 @@ def flatten(l):
     '''flatten a list'''
     return [item for sublist in l for item in sublist]
 
-def max_len_seq(sequences: List[str]) -> int:
-    return max([len(seq) for seq in sequences])
-
 
 def truncate_codon_sequence(sequence):
     '''If the sequence is not evenly divisible by 3, then we take off %3 bases from the end'''
@@ -384,13 +381,13 @@ def filter_sequences_by_gc(dna_sequences):
     return valid_inds
 
 
-def preprocess_data(sequences: List[Sequence], labels: List[str], per_of_each_class=1.0, max_len=3000):
+def preprocess_data(sequences: List[Sequence], labels: List[str], per_of_each_class=1.0, max_len_codon=3000):
     # Note: This function modifies sequences and labels
     # Filter out any outlier labels
     valid_labels = set(['mRNA', 'tRNA', 'RNA', 'exon', 'misc_RNA', 'rRNA', 'CDS', 'ncRNA'])
     valid_inds_labels = [i for i, label in enumerate(labels) if label in valid_labels]
     valid_inds_sequences = filter_sequences_by_gc(sequences)
-    valid_inds_sequences = [x for x in valid_inds_sequences if len(sequences[x]) <= max_len]
+    valid_inds_sequences = [x for x in valid_inds_sequences if len(sequences[x]) <= max_len_codon * 3]
     valid_inds = intersection(valid_inds_labels, valid_inds_sequences)
     print(len(valid_inds))
     sequences = [sequences[ind] for ind in valid_inds]
@@ -444,12 +441,12 @@ if __name__ == "__main__":
     sequences_raw = []
     #for p in Path(path).glob("*.fasta"):
     sequences_raw.extend(read_fasta(path))
-    max_len = 3000
+    max_len_codon = 3000
     labels = parse_sequence_labels(sequences_raw)
     raw_sequences, labels = preprocess_data(sequences_raw, labels)
     sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
     
-    print(f"max_len: {max_len}")
+    print(f"max_len_codon: {max_len_codon}")
     
     
     #sequences = [["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"]]
@@ -459,7 +456,7 @@ if __name__ == "__main__":
 
 
 
-    dataset = GeneticGraphDataset(sequences = sequences, labels =label_nums, num_feats=3, max_len=max_len)
+    dataset = GeneticGraphDataset(sequences = sequences, labels =label_nums, num_feats=3, max_len_codon=max_len_codon)
     train_idx, val_idx = split_fold10(label_nums)
 
     # create dataloader
