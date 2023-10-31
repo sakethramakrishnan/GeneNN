@@ -126,7 +126,8 @@ def train(train_loader, val_loader, device, model):
     for epoch in range(100):
         model.train()
         total_loss = 0
-        for batch, (batched_graph, labels) in enumerate(train_loader):
+
+        for i, (batched_graph, labels) in enumerate(train_loader):
             batched_graph = batched_graph.to(device)
             labels = labels.to(device)
             feat = batched_graph.ndata.pop("feature")
@@ -141,22 +142,24 @@ def train(train_loader, val_loader, device, model):
         valid_acc = evaluate(val_loader, device, model)
         print(
             "Epoch {:05d} | Loss {:.4f} | Train Acc. {:.4f} | Validation Acc. {:.4f} ".format(
-                epoch, total_loss / (batch + 1), train_acc, valid_acc
+                epoch, total_loss / (i + 1), train_acc, valid_acc
             )
         )
 
 
 class GeneticGraphDataset(Dataset):
-    def __init__(self, sequences, labels, num_feats):
+    def __init__(self, sequences, labels, num_feats, max_len):
         # where sequence is a list of codons
         self.labels = labels
         self.sequences = sequences
         self.num_feats = num_feats
+        self.max_len = max_len
 
     def __len__(self):
         return len(self.codon_numbers)
-    
-    def codons_to_graph(self, sequence, num_feats):
+
+
+    def codons_to_graph(self, sequence, num_feats, max_len):
         codon_numbers = convert_codons_to_nums(sequence)
         codon_polarity = convert_codons_to_polarity(sequence)
         amino_acids = convert_codons_to_aa(sequence)
@@ -175,49 +178,32 @@ class GeneticGraphDataset(Dataset):
             else:
                 src_nodes.extend([i] * 3)
                 dst_nodes.extend([i - 1, i, i + 1])
-
-        g = dgl.graph((src_nodes, dst_nodes), num_nodes=num_codons)
         
-        node_features = torch.zeros(1, num_feats, dtype=torch.float32)
+        g = dgl.graph((src_nodes, dst_nodes), num_nodes=max_len)
         
-        #print(node_features.size())
+        node_features = torch.zeros(max_len, num_feats, dtype=torch.float32)
         
-        '''
-        # Initialize a tensor of shape (num_codons, 64) with zeros for codon features
-        codon_features = torch.zeros(num_codons, 64, dtype=torch.float32)
+        for i, (num, polar, aa) in enumerate(zip(codon_numbers, codon_polarity, amino_acids)):
+           
+            
+            #node_features[i] = torch.squeeze(torch.tensor(list((num, polar, aa))))
+            node_features[i][0] = num
+            node_features[i][1] = polar
+            node_features[i][2] = aa
+           
         
-        for i, codon_num in enumerate(codon_numbers):
-            codon_features[i, codon_num] = 1
-
-        #weights = torch.tensor([0.1, 0.2, 0.3, 0.4])
-
-        
-
-        # Assign the codon features to the graph
-        g.ndata['codon_feature'] = codon_features
-        #g.edata['edge_weight'] = weights
-        # Create a tensor for polarity feature
-        polarity_features = torch.zeros(num_codons, len(CODON_POLARITY), dtype=torch.float32)
-        for i, codon_polarity_label in enumerate(codon_polarity):
-            polarity_features[i, list(CODON_POLARITY.values()).index(codon_polarity_label)] = 1
-
-        # Assign the polarity features to the graph
-        g.ndata['polarity_feature'] = polarity_features
-
-        amino_acid_features = torch.zeros(num_codons, len(AMINO_ACIDS), dtype=torch.float32)
-        for i, amino_acid in enumerate(amino_acids):
-            amino_acid_features[i, list(AMINO_ACIDS).index(amino_acid)] = 1
-        g.ndata['amino_acid_feature'] = amino_acid_features
-
+      
+        g.ndata["feature"] = node_features
         return g
-        '''
+        
 
     def __getitem__(self, idx):
             sequence = self.sequences[idx]
             #print(sequence)
-            graph = self.codons_to_graph(sequence, self.num_feats)
+            graph = self.codons_to_graph(sequence, self.num_feats, self.max_len)
             label = self.labels[idx]
             #print(len(sequence))
+           
             return graph, label
     
 
@@ -252,19 +238,27 @@ AA_TO_POLARITY = {
 
 # Define a mapping from codons to their polarity
 CODON_POLARITY = {codon:AA_TO_POLARITY[CODON_TO_AA[codon]] for codon in CODON_TO_AA}
+POLARITY_NUM = {
+    "polar": 0,
+    "nonpolar": 1,
+    "positive": 2,
+    "negative": 3,
+    "special": 4
+}
 
 AMINO_ACIDS = ['R', 'H', 'K', 'D', 'E', 'S', 'T', 'N', 'Q', 'A', 'V', 'I', 'L', 'M', 'F', 'Y', 'W', 'C', 'G', 'P', '_', 'X']
 
-CODON_LETTER_NUMBER_ASSIGN = dict(zip(CODON_TO_AA, range(len(CODON_TO_AA)))) 
+CODON_LETTER_NUMBER_ASSIGN = dict(zip(CODON_TO_AA, range(len(CODON_TO_AA))))
+AMINO_ACID_NUM_ASSIGN = dict(zip(AMINO_ACIDS, range(len(AMINO_ACIDS)))) 
 
 def convert_codons_to_nums(codon_seq):
     return [CODON_LETTER_NUMBER_ASSIGN[codon] for codon in codon_seq]
 
 def convert_codons_to_polarity(codon_seq):
-    return [CODON_POLARITY[codon] for codon in codon_seq]
+    return [POLARITY_NUM[CODON_POLARITY[codon]] for codon in codon_seq]
 
 def convert_codons_to_aa(codon_seq):
-    return [CODON_TO_AA[codon] for codon in codon_seq]
+    return [AMINO_ACID_NUM_ASSIGN[CODON_TO_AA[codon]] for codon in codon_seq]
 
 
 
@@ -357,6 +351,9 @@ def flatten(l):
     '''flatten a list'''
     return [item for sublist in l for item in sublist]
 
+def max_len_seq(sequences: List[str]) -> int:
+    return max([len(seq) for seq in sequences])
+
 
 def truncate_codon_sequence(sequence):
     '''If the sequence is not evenly divisible by 3, then we take off %3 bases from the end'''
@@ -404,7 +401,8 @@ def preprocess_data(sequences: List[Sequence], labels: List[str], per_of_each_cl
     class_lens = dict(Counter(labels))
     for key in class_lens:
         class_lens[key] = round(class_lens[key] * per_of_each_class)
-    #print(class_lens)
+
+    print(class_lens)
     smallest_class, min_class_size = min(class_lens.items(), key=itemgetter(1))
     # min_class_size = class_lens[smallest_class]
     print(f"Smallest class: {smallest_class} with {min_class_size} examples")
@@ -440,24 +438,26 @@ if __name__ == "__main__":
     print(f"Training with DGL built-in GINConv module with a fixed epsilon = 0")
     #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     device = "cpu"
-    #path = "/lus/eagle/projects/RL-fold/sakisubi/Data/NewDataJustModified"
-    #sequences_raw = []
+    path = "/home/couchbucks/Downloads/all_fasta_files/training/GCF_000315915.1_ASM31591v1_genomic_extracted_sequences.fasta"
+    sequences_raw = []
     #for p in Path(path).glob("*.fasta"):
-     #   sequences_raw.extend(read_fasta(p))
+    sequences_raw.extend(read_fasta(path))
 
-    #labels = parse_sequence_labels(sequences_raw)
-    labels = ["mRNA", "tRNA", "mRNA"]
-    #raw_sequences, labels = preprocess_data(sequences_raw, labels)
-    #sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
-    sequences = [["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"]]
-    #labels_dict = {'CDS': 0, 'ncRNA': 1, 'tRNA': 2, 'mRNA': 3, 'rRNA': 4}
-    #label_nums = [labels_dict[label_str] for label_str in labels]
-    print(len(sequences))
-    label_nums = [0, 3, 0, 0, 0, 2, 3, 1, 4, 0, 2]
+    labels = parse_sequence_labels(sequences_raw)
+    raw_sequences, labels = preprocess_data(sequences_raw, labels)
+    sequences = [seq_to_codon_list(truncate_codon_sequence(seq[0].upper())) for seq in raw_sequences]
+    max_len = max_len_seq(sequences)
+    print(f"max_len: {max_len}")
+    
+    
+    #sequences = [["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG", "TCA", "TAA", "TAG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"], ["ATG", "TGA", "TAA", "TAG"]]
+    labels_dict = {'CDS': 0, 'ncRNA': 1, 'tRNA': 2, 'mRNA': 3, 'rRNA': 4}
+    label_nums = [labels_dict[label_str] for label_str in labels]
+    #label_nums = [0, 3, 0, 0, 0, 2, 3, 1, 4, 0, 2]
 
       
 
-    dataset = GeneticGraphDataset(sequences = sequences, labels =label_nums, num_feats=3)
+    dataset = GeneticGraphDataset(sequences = sequences, labels =label_nums, num_feats=3, max_len=max_len)
     train_idx, val_idx = split_fold10(label_nums)
 
     # create dataloader
@@ -475,7 +475,7 @@ if __name__ == "__main__":
     )
 
     # create GIN model
-    in_size = 65
+    in_size = 3
     out_size = 5
     model = GIN(in_size, 16, out_size).to(device)
 
