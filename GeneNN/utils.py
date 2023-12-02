@@ -3,7 +3,7 @@ import queue
 import threading
 from operator import itemgetter
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Dict
 
 PathLike = Union[str, Path]
 
@@ -103,7 +103,7 @@ def filter_sequences_by_gc(dna_sequences: List[List[str]]) -> List[str]:
 
 def parse_sequence_labels(sequences: List[Sequence]) -> List[str]:
     pattern = r"gbkey=([^;]+)"
-    matches = [re.search(pattern, seq[1]) for seq in sequences]
+    matches = [re.search(pattern, seq.tag) for seq in sequences]
     labels = [match.group(1) if match else "" for match in matches]
     return labels
 
@@ -135,10 +135,8 @@ def preprocess_data(
         ["mRNA", "tRNA", "RNA", "exon", "misc_RNA", "rRNA", "CDS", "ncRNA"]
     )
     valid_inds_labels = [i for i, label in enumerate(labels) if label in valid_labels]
-    valid_inds_sequences = filter_sequences_by_gc_and_bases(sequences)
-    valid_inds = intersection(valid_inds_labels, valid_inds_sequences)
-    sequences = [sequences[ind] for ind in valid_inds]
-    labels = [labels[ind] for ind in valid_inds]
+    sequences = [sequences[ind].sequence for ind in valid_inds_labels]
+    labels = [labels[ind] for ind in valid_inds_labels]
 
     label_group = defaultdict(list)
     for i, label in enumerate(labels):
@@ -413,7 +411,7 @@ def make_perfect_fasta(
             and GC(sequence) < 100.0
             and len(sequence) >= 3
         ):
-            codon_list = seq_to_codon_list(sequence)
+            codon_list = seq_to_codon_list(sequence, 3)
             replaced_codon_list = replace_invalid_codons(codon_list)
             refined_seqs.append("".join(replaced_codon_list))
             valid_inds.append(i)
@@ -567,5 +565,3 @@ def most_common_token(tokenizer, sequences):
         common_token
     ))
     
-    
-make_perfect_fasta("/home/couchbucks/Documents/saketh/cpe/data/datasets/mdh/valid.fasta", "valid_refined_mdh.fasta")
